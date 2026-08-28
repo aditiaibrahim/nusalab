@@ -414,7 +414,11 @@ img {
 .sidebar {
   position: sticky;
   top: 0;
+  /* 100dvh dipakai agar di HP tinggi sidebar mengikuti viewport yang terlihat
+     (100vh saja lebih tinggi karena address bar browser, sehingga tombol
+     Keluar di sidebar-foot bisa terdorong keluar layar). */
   height: 100vh;
+  height: 100dvh;
   display: flex;
   flex-direction: column;
   border-right: 1px solid var(--line);
@@ -492,7 +496,9 @@ img {
   display: grid;
   gap: 12px;
   padding: 16px;
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
   border-top: 1px solid var(--line);
+  flex-shrink: 0;
 }
 
 .user-mini {
@@ -1832,6 +1838,9 @@ img {
   .sidebar {
     position: fixed;
     inset: 0 auto 0 0;
+    /* Di mobile, biarkan top/bottom inset yang menentukan tinggi (height: auto)
+       supaya footer sidebar (tombol Keluar) selalu terlihat di layar HP. */
+    height: auto;
     width: min(var(--sidebar), calc(100vw - 48px));
     transform: translateX(-105%);
     transition: transform 180ms ease;
