@@ -63,6 +63,7 @@ const initialState = {
   authLoading: true,
   dataLoading: false,
   profileIncomplete: false,
+  phoneVerifyPending: false,
   authError: "",
   remoteError: "",
   users: [
@@ -329,6 +330,7 @@ function mapProfile(profile) {
     studyProgram: profile.study_program || "",
     birthDate: profile.birth_date || "",
     role: profile.role || "user",
+    phoneVerified: profile.phone_verified === true,
     password: "",
     avatar: profile.avatar_url || ""
   };
@@ -483,6 +485,7 @@ async function applySupabaseSession(session) {
     state.maintenance = [];
     state.notifications = [];
     state.profileIncomplete = false;
+    state.phoneVerifyPending = false;
     state.dataLoading = false;
     render();
     return;
@@ -497,6 +500,13 @@ async function applySupabaseSession(session) {
     state.profileIncomplete = !isProfileComplete(profile);
     if (state.profileIncomplete) {
       state.authMode = "register";
+      state.dataLoading = false;
+      render();
+      return;
+    }
+    /* Nomor WhatsApp belum terverifikasi → tahap verifikasi dulu sebelum dashboard */
+    if (profile.phone_verified === false) {
+      state.phoneVerifyPending = true;
       state.dataLoading = false;
       render();
       return;
@@ -833,6 +843,11 @@ async function signOut() {
     state.activePage = "dashboard";
     state.mobileOpen = false;
     state.profileIncomplete = false;
+    state.phoneVerifyPending = false;
+    phoneVerifyAutoSent = false;
+    /* Kembali ke layar login awal, bukan mode register
+       (authMode bisa tertinggal "register" dari sesi sebelumnya) */
+    state.authMode = "login";
     saveState();
     render();
   }
@@ -878,12 +893,108 @@ async function registerUser(event) {
     state.users = [mapProfile(data)];
     state.session = { userId: data.id, role: data.role || "user" };
     state.profileIncomplete = false;
+    if (data.phone_verified !== true) {
+      /* Nomor belum terverifikasi → masuk tahap verifikasi WhatsApp dulu */
+      state.phoneVerifyPending = true;
+      saveState();
+      render();
+      setToast("Profil tersimpan", "Kode verifikasi sedang dikirim via WhatsApp. Cek pesan masukmu.");
+      return;
+    }
+    state.phoneVerifyPending = false;
     state.activePage = "dashboard";
     await loadRemoteState();
     saveState();
     setToast("Akun tersimpan", "Profil Google sudah terhubung ke NusaLab.");
   } catch (error) {
     setToast("Profil gagal disimpan", error.message || "Periksa data lalu coba lagi.");
+  }
+}
+
+/* ===== Verifikasi nomor WhatsApp ===== */
+/* Ambil access token terbaru agar header Authorization selalu valid */
+async function getFreshAccessToken() {
+  const client = requireSupabase();
+  let accessToken = supabaseSession?.access_token;
+  try {
+    const { data } = await client.auth.getSession();
+    if (data?.session?.access_token) {
+      accessToken = data.session.access_token;
+    }
+  } catch {
+    /* pakai token lama bila gagal */
+  }
+  return accessToken;
+}
+
+async function callVerifyPhone(payload) {
+  const accessToken = await getFreshAccessToken();
+  if (!accessToken) {
+    throw new Error("Sesi tidak ditemukan. Muat ulang halaman lalu coba lagi.");
+  }
+  const response = await fetch(`${SUPABASE_URL}/functions/v1/verify-phone`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_PUBLISHABLE_KEY,
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify(payload)
+  });
+  const text = await response.text();
+  let body = null;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = null;
+  }
+  if (!response.ok) {
+    throw new Error(body?.error || `Gagal menghubungi layanan verifikasi (${response.status}).`);
+  }
+  return body;
+}
+
+/* silent=true dipakai saat kirim otomatis agar tidak mengganggu dengan toast */
+async function sendPhoneVerification(silent = true) {
+  try {
+    const result = await callVerifyPhone({ action: "send" });
+    if (result?.already_verified) {
+      state.phoneVerifyPending = false;
+      render();
+      return true;
+    }
+    if (!silent) {
+      setToast("Kode terkirim", "Cek WhatsApp-mu untuk kode verifikasi 6 digit.");
+    }
+    return true;
+  } catch (error) {
+    if (!silent) {
+      setToast("Kode gagal dikirim", error.message || "Coba lagi beberapa saat.", "error");
+    } else {
+      console.warn("[NusaLab] Kirim kode verifikasi otomatis gagal:", error.message);
+    }
+    return false;
+  }
+}
+
+async function verifyPhoneCode(event) {
+  event.preventDefault();
+  const form = new FormData(event.currentTarget);
+  const code = String(form.get("code") || "").replace(/\D/g, "");
+  if (code.length !== 6) {
+    setToast("Kode belum lengkap", "Masukkan 6 digit kode verifikasi dari WhatsApp.", "warning");
+    return;
+  }
+  try {
+    await callVerifyPhone({ action: "verify", code });
+    state.phoneVerifyPending = false;
+    const current = getUser();
+    if (current) current.phoneVerified = true;
+    setToast("Nomor terverifikasi", "Nomor WhatsApp kamu sudah terkonfirmasi. Selamat datang di NusaLab!");
+    await refreshRemoteState();
+    render();
+  } catch (error) {
+    setToast("Verifikasi gagal", error.message || "Coba lagi.", "error");
   }
 }
 
@@ -1312,23 +1423,44 @@ function syncRemoteData() {
   refreshRemoteState();
 }
 
+/* Kunci render terakhir — dipakai agar animasi masuk tidak diputar berulang
+   saat state berubah tapi halaman/mode yang tampil masih sama */
+let prevRenderKey = null;
+/* Penanda agar kode verifikasi tidak dikirim otomatis berulang di render ulang */
+let phoneVerifyAutoSent = false;
+
 function render() {
   const root = document.querySelector("#app");
   try {
     if (state.authLoading) {
       root.innerHTML = renderLoading("Menyiapkan sesi NusaLab...");
+      prevRenderKey = "loading";
       return;
     }
-    if (!state.session || state.profileIncomplete) {
+    if (!state.session || state.profileIncomplete || state.phoneVerifyPending) {
+      /* Animasi masuk hanya diputar saat mode auth benar-benar berubah,
+         bukan di setiap render ulang (mis. saat memuat data setelah login) */
+      const authKey = `auth:${state.authMode}:${state.profileIncomplete}:${state.phoneVerifyPending}:${Boolean(supabaseSession)}`;
       root.innerHTML = renderAuth();
+      if (authKey !== prevRenderKey) {
+        root.querySelector(".auth-card")?.classList.add("anim-fade-up");
+      }
+      prevRenderKey = authKey;
       bindAuth();
       return;
     }
     if (state.dataLoading && !getUser()) {
       root.innerHTML = renderLoading("Memuat data dashboard...");
+      prevRenderKey = "loading-data";
       return;
     }
+    /* Animasi konten hanya saat berpindah halaman, bukan tiap render ulang */
+    const pageKey = `page:${state.activePage}`;
     root.innerHTML = renderShell();
+    if (pageKey !== prevRenderKey) {
+      root.querySelector(".content-inner")?.classList.add("anim-fade-up");
+    }
+    prevRenderKey = pageKey;
     bindApp();
   } catch (error) {
     // Jaring pengaman terakhir: error render tidak boleh menimbulkan layar putih.
@@ -1351,22 +1483,24 @@ function render() {
   }
 }
 
+function renderAuthSide() {
+  return `
+    <section class="auth-side" aria-label="NusaLab Booking">
+      <div class="auth-side-inner">
+        <div class="auth-brand">
+          <span class="auth-brand-name">NUSA LAB</span>
+          <span class="auth-brand-sub">BOOKING</span>
+        </div>
+        <div class="auth-sunrise" aria-hidden="true"></div>
+      </div>
+    </section>
+  `;
+}
+
 function renderLoading(message) {
   return `
     <main class="auth-shell">
-      <section class="auth-side" aria-label="Ringkasan sistem">
-        <div class="auth-side-inner">
-          <div class="brand-lockup">
-            <span class="brand-mark">${icons.lab}</span>
-            <span>NusaLab</span>
-          </div>
-          <div class="auth-copy">
-            <p class="eyebrow">Sistem peminjaman laboratorium</p>
-            <h1>${message}</h1>
-            <p>Mohon tunggu sebentar.</p>
-          </div>
-        </div>
-      </section>
+      ${renderAuthSide()}
       <section class="auth-panel">
         <div class="auth-card">
           <div class="notice success">
@@ -1383,30 +1517,26 @@ function renderLoading(message) {
 }
 
 function renderAuth() {
-  const mode = state.profileIncomplete ? "register" : state.authMode;
+  const mode = state.profileIncomplete
+    ? "register"
+    : state.phoneVerifyPending
+      ? "verify"
+      : state.authMode;
   const isProfileStep = Boolean(supabaseSession && state.profileIncomplete);
+  const verifyUser = mode === "verify" ? getUser() : null;
   return `
     <main class="auth-shell">
-      <section class="auth-side" aria-label="Ringkasan sistem">
-        <div class="auth-side-inner">
-          <div class="brand-lockup">
-            <span class="brand-mark">${icons.lab}</span>
-            <span>NusaLab</span>
-          </div>
-          <div class="auth-copy">
-            <p class="eyebrow">Sistem peminjaman laboratorium</p>
-            <h1>Kelola jadwal lab dari pengajuan sampai surat peminjaman.</h1>
-            <p>Alur pengguna, admin, notifikasi, maintenance, pembatalan, dan bukti peminjaman dirapikan dalam satu dashboard.</p>
-          </div>
-        </div>
-      </section>
+      ${renderAuthSide()}
       <section class="auth-panel">
-        <div class="auth-card">
-          <h2>${mode === "login" ? "Masuk ke dashboard" : isProfileStep ? "Lengkapi data akun" : "Daftar akun peminjam"}</h2>
-          <p>${mode === "login" ? "Gunakan akun Google kampus untuk masuk ke NusaLab." : "Data ini melengkapi akun Google agar bisa mengajukan peminjaman lab."}</p>
+        <div class="auth-card auth-card--dark${mode === "login" ? " auth-card--welcome" : ""}">
+          ${mode === "login"
+            ? `<div class="auth-welcome-logo" aria-hidden="true">${icons.lab}</div><h2 class="auth-welcome">Hello.</h2>`
+            : mode === "verify"
+              ? `<h2>Verifikasi WhatsApp</h2><p>Masukkan kode yang kami kirim ke nomor WhatsApp <strong>${escapeHtml(verifyUser?.phone || "-")}</strong>.</p>`
+              : `<h2>${isProfileStep ? "Lengkapi data akun" : "Daftar akun peminjam"}</h2><p>Data ini melengkapi akun Google agar bisa mengajukan peminjaman lab.</p>`}
           ${state.authError ? `<div class="notice warning">${icon("x")}<div><strong>Auth belum siap</strong><div>${escapeHtml(state.authError)}</div></div></div>` : ""}
           ${state.remoteError ? `<div class="notice warning">${icon("x")}<div><strong>Supabase error</strong><div>${escapeHtml(state.remoteError)}</div></div></div>` : ""}
-          ${mode === "login" ? renderLogin() : renderRegister()}
+          ${mode === "login" ? renderLogin() : mode === "verify" ? renderVerifyPhone() : renderRegister()}
         </div>
       </section>
       ${state.toast ? renderToast() : ""}
@@ -1417,18 +1547,13 @@ function renderAuth() {
 function renderLogin() {
   return `
     <form class="auth-form" id="loginForm">
-      <div class="notice success">
-        ${icon("shield")}
-        <div>
-          <strong>Login dengan Google</strong>
-          <div>Google akan menampilkan Account Chooser jika ada beberapa akun tersimpan.</div>
-        </div>
+      <div class="auth-actions auth-actions--stack">
+        <button class="btn google-btn auth-btn-light" type="submit">Login</button>
+        <button class="btn google-btn auth-btn-ghost" type="submit">Register</button>
       </div>
-      <div class="auth-actions">
-        <button class="btn btn-primary google-btn" type="submit"><span class="google-mark">G</span>Masuk dengan Google</button>
-        <button class="link-button" type="button" data-auth-mode="register">Register akun</button>
-      </div>
+      <p class="auth-legal">Dengan menekan “Login” atau “Register”, kamu menyetujui <span class="auth-legal-link">Syarat &amp; Ketentuan</span> dan <span class="auth-legal-link">Kebijakan Privasi</span> kami.</p>
     </form>
+    <div class="auth-home-indicator" aria-hidden="true"></div>
   `;
 }
 
@@ -1453,18 +1578,17 @@ function renderRegister() {
           </div>
         </div>
       ` : ""}
-      <div class="form-grid two">
-        <label class="field">
-          <span>Nama lengkap</span>
-          <input name="name" required placeholder="Nama peminjam" value="${escapeHtml(name)}" />
-        </label>
-        <label class="field">
-          <span>Role</span>
-          <select name="identity" required>
-            <option ${identity === "Mahasiswa" ? "selected" : ""}>Mahasiswa</option>
-            <option ${identity === "Dosen" ? "selected" : ""}>Dosen</option>
-          </select>
-        </label>
+      <label class="field">
+        <span>Nama lengkap</span>
+        <input name="name" required placeholder="Nama peminjam" value="${escapeHtml(name)}" />
+      </label>
+      <div class="field">
+        <span>Role</span>
+        <input type="hidden" name="identity" value="${escapeHtml(identity)}" data-role-input />
+        <div class="role-picker" role="group" aria-label="Pilih role">
+          <button type="button" class="role-option${identity === "Mahasiswa" ? " is-active" : ""}" data-role-value="Mahasiswa">Mahasiswa</button>
+          <button type="button" class="role-option${identity === "Dosen" ? " is-active" : ""}" data-role-value="Dosen">Dosen</button>
+        </div>
       </div>
       <label class="field">
         <span>NIM / NIDN</span>
@@ -1493,6 +1617,26 @@ function renderRegister() {
         ${supabaseSession ? `<button class="link-button" type="button" data-logout>Keluar</button>` : `<button class="link-button" type="button" data-auth-mode="login">Kembali login</button>`}
       </div>
     </form>
+  `;
+}
+
+function renderVerifyPhone() {
+  const user = getUser();
+  const phone = user?.phone || "-";
+  return `
+    <form class="auth-form" id="verifyForm">
+      <p class="verify-hint">Masukkan 6 digit kode yang dikirim via WhatsApp ke <strong>${escapeHtml(phone)}</strong>. Kode berlaku 10 menit.</p>
+      <label class="field">
+        <span>Kode verifikasi</span>
+        <input name="code" required inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="••••••" class="verify-code" />
+      </label>
+      <div class="auth-actions auth-actions--stack">
+        <button class="btn btn-primary" type="submit">Verifikasi nomor</button>
+        <button class="link-button" type="button" data-resend-code>Kirim ulang kode</button>
+        <button class="link-button" type="button" data-logout>Keluar</button>
+      </div>
+    </form>
+    <div class="auth-home-indicator" aria-hidden="true"></div>
   `;
 }
 
@@ -2962,6 +3106,23 @@ function bindAuth() {
     signIn();
   });
   document.querySelector("#registerForm")?.addEventListener("submit", registerUser);
+  document.querySelector("#verifyForm")?.addEventListener("submit", verifyPhoneCode);
+  document.querySelector("[data-resend-code]")?.addEventListener("click", () => sendPhoneVerification(false));
+  /* Kirim kode otomatis sekali saat halaman verifikasi muncul */
+  if (document.querySelector("#verifyForm") && !phoneVerifyAutoSent) {
+    phoneVerifyAutoSent = true;
+    sendPhoneVerification(true);
+  }
+  document.querySelectorAll(".role-option").forEach((button) => {
+    button.addEventListener("click", () => {
+      const picker = button.closest(".role-picker");
+      const input = picker?.querySelector("[data-role-input]");
+      if (input) input.value = button.dataset.roleValue;
+      picker?.querySelectorAll(".role-option").forEach((item) => {
+        item.classList.toggle("is-active", item === button);
+      });
+    });
+  });
   document.querySelector("[data-logout]")?.addEventListener("click", signOut);
 }
 

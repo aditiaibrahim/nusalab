@@ -67,36 +67,85 @@ img {
   min-height: 100vh;
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(380px, 480px);
+  /* Background gradien + motif titik samar ditaruh di shell sehingga
+     area di belakang kartu gelap (panel kanan) tidak lagi putih polos */
+  background-color: #f7fafc;
+  background-image:
+    radial-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+    radial-gradient(circle at 12% 0%, rgba(37, 99, 235, 0.08), transparent 42%),
+    radial-gradient(circle at 88% 100%, rgba(15, 118, 110, 0.08), transparent 46%),
+    linear-gradient(165deg, #eef4ff 0%, #f7fafc 52%, #e9f5f2 100%);
+  background-size: 26px 26px, auto, auto, auto;
 }
 
 .auth-side {
   position: relative;
-  padding: 42px;
   overflow: hidden;
-  color: #f8fbff;
-  background:
-    radial-gradient(circle at 18% 18%, rgba(248, 113, 113, 0.42), transparent 28%),
-    radial-gradient(circle at 78% 28%, rgba(168, 85, 247, 0.48), transparent 34%),
-    linear-gradient(135deg, #3b0764 0%, #7e22ce 42%, #be123c 72%, #ef4444 100%);
-}
-
-.auth-side::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(90deg, rgba(24, 6, 42, 0.72), rgba(87, 10, 46, 0.3)),
-    radial-gradient(circle at 22% 82%, rgba(255, 255, 255, 0.16), transparent 28%);
+  padding: 44px 48px;
+  /* Transparan — background gradien kini dimiliki .auth-shell */
+  background: transparent;
 }
 
 .auth-side-inner {
   position: relative;
   z-index: 1;
-  min-height: calc(100vh - 84px);
+  min-height: calc(100vh - 88px);
   display: flex;
   flex-direction: column;
-  justify-content: space-between;
-  max-width: 660px;
+}
+
+.auth-brand {
+  display: grid;
+  gap: 7px;
+}
+
+.auth-brand-name {
+  color: var(--ink);
+  font-size: 2rem;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  line-height: 1;
+}
+
+.auth-brand-sub {
+  color: var(--teal);
+  font-size: 0.78rem;
+  font-weight: 800;
+  letter-spacing: 0.46em;
+  text-transform: uppercase;
+}
+
+.auth-sunrise {
+  position: relative;
+  flex: 1;
+  min-height: 240px;
+}
+
+/* Kubah matahari terbit */
+.auth-sunrise::before {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -100%);
+  width: 200px;
+  height: 100px;
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, #8bb8ff 0%, #2563eb 90%);
+}
+
+/* Cahaya/pantulan blur di bawah horizon */
+.auth-sunrise::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -42%);
+  width: 300px;
+  height: 120px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(37, 99, 235, 0.38), rgba(37, 99, 235, 0) 74%);
+  filter: blur(16px);
 }
 
 .brand-lockup {
@@ -123,69 +172,13 @@ img {
   height: 24px;
 }
 
-.auth-copy {
-  max-width: 610px;
-  padding-bottom: 8vh;
-}
-
-.eyebrow {
-  margin: 0 0 14px;
-  color: rgba(248, 251, 255, 0.76);
-  font-size: 0.78rem;
-  font-weight: 800;
-  text-transform: uppercase;
-}
-
-.auth-copy h1 {
-  margin: 0;
-  max-width: 600px;
-  font-size: 3rem;
-  line-height: 1.03;
-}
-
-.auth-copy p {
-  margin: 18px 0 0;
-  max-width: 540px;
-  color: rgba(248, 251, 255, 0.8);
-  font-size: 1rem;
-  line-height: 1.65;
-}
-
-.auth-highlights {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 28px;
-}
-
-.auth-highlight {
-  min-height: 92px;
-  padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: var(--radius);
-  background: rgba(255, 255, 255, 0.1);
-  backdrop-filter: blur(14px);
-}
-
-.auth-highlight strong {
-  display: block;
-  font-size: 1.35rem;
-}
-
-.auth-highlight span {
-  display: block;
-  margin-top: 4px;
-  color: rgba(248, 251, 255, 0.76);
-  font-size: 0.82rem;
-  line-height: 1.35;
-}
-
 .auth-panel {
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 36px;
-  background: var(--surface);
+  /* Latar putih di belakang kartu (login & register) — PC dan mobile */
+  background: #fff;
 }
 
 .auth-card {
@@ -196,6 +189,16 @@ img {
   margin: 0;
   font-size: 1.72rem;
   color: var(--ink);
+}
+
+/* Heading "Hello." khusus kartu login gelap (di tengah antara logo & tombol) */
+.auth-card--welcome .auth-welcome {
+  margin: auto 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 2.35rem;
+  font-weight: 600;
+  color: #fff;
+  letter-spacing: 0.01em;
 }
 
 .auth-card > p {
@@ -375,19 +378,208 @@ img {
   padding: 0;
 }
 
-.google-btn {
-  min-width: 210px;
+/* ===== Kartu login gelap ala referensi ===== */
+.auth-card--welcome {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: min(660px, 88vh);
+  padding: 52px 34px 36px;
+  border-radius: 38px;
+  background: #0a0b0d;
+  box-shadow: 0 34px 80px rgba(2, 6, 23, 0.45);
 }
 
-.google-mark {
-  width: 20px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
+/* Ikon kecil di atas tengah kartu */
+.auth-welcome-logo {
+  color: #fff;
+  margin-bottom: 4px;
+}
+
+.auth-welcome-logo svg {
+  width: 28px;
+  height: 28px;
+}
+
+.auth-card--welcome .auth-form {
+  width: 100%;
+}
+
+/* ===== Kartu register/lengkapi data: gelap sama seperti kartu login ===== */
+.auth-card--dark {
+  padding: 40px 32px;
+  border-radius: 38px;
+  background: #0a0b0d;
+  box-shadow: 0 34px 80px rgba(2, 6, 23, 0.45);
+  /* Agar kontrol native (date picker, select) ikut bertema gelap */
+  color-scheme: dark;
+}
+
+.auth-card--dark h2 {
+  color: #fff;
+}
+
+.auth-card--dark > p {
+  color: #b9bec7;
+}
+
+/* Label & input menyesuaikan kartu gelap agar tetap terbaca */
+.auth-card--dark .field span {
+  color: #d7dae0;
+}
+
+.auth-card--dark .field input,
+.auth-card--dark .field select {
+  color: #f2f3f5;
+  background: #16181c;
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.auth-card--dark .field input:focus,
+.auth-card--dark .field select:focus {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.25);
+}
+
+.auth-card--dark .field input::placeholder {
+  color: #6d737c;
+}
+
+/* ===== Pemilih role (pengganti dropdown) di kartu gelap ===== */
+.role-picker {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.role-option {
+  min-height: 44px;
+  width: 100%;
+  min-width: 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  color: #b9bec7;
+  background: #16181c;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    transform 120ms ease;
+}
+
+.role-option:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.36);
+}
+
+.role-option:active {
+  transform: scale(0.97);
+}
+
+.role-option.is-active {
+  color: #fff;
+  border-color: var(--blue);
+  background: rgba(37, 99, 235, 0.22);
+}
+
+/* ===== Kartu verifikasi WhatsApp ===== */
+.verify-hint {
+  margin: 0;
+  color: #b9bec7;
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.verify-hint strong {
+  color: #fff;
+}
+
+/* Input kode: besar, renggang, rata tengah ala OTP */
+.verify-code {
+  letter-spacing: 0.45em;
+  text-align: center;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+/* Tombol link di tumpukan verifikasi tetap terbaca rapi */
+.auth-actions--stack .link-button {
+  justify-content: center;
+}
+
+/* Dua tombol pill panjang ditumpuk ke bawah */
+.auth-actions--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+/* Tombol pill panjang ala referensi (tinggi Y lebih pendek) */
+.google-btn {
+  width: 100%;
+  min-width: 0;
+  min-height: 42px;
   border-radius: 999px;
-  color: var(--blue);
+  padding: 8px 20px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+/* Tombol utama: putih dengan teks gelap (posisi Login) */
+.auth-btn-light {
+  color: #101114;
   background: #fff;
-  font-weight: 900;
+  border-color: #fff;
+}
+
+.auth-btn-light:hover {
+  background: #ececec;
+  border-color: #ececec;
+}
+
+/* Tombol kedua: transparan dengan outline tipis (posisi Register) */
+.auth-btn-ghost {
+  color: #b9bec7;
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.34);
+}
+
+.auth-btn-ghost:hover {
+  color: #fff;
+  border-color: rgba(255, 255, 255, 0.6);
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* Teks legal kecil di bawah tombol */
+.auth-legal {
+  margin: 4px auto 0;
+  max-width: 36ch;
+  font-size: 0.68rem;
+  line-height: 1.55;
+  color: #74797f;
+}
+
+.auth-legal-link {
+  color: #c9ccd2;
+  text-decoration: underline;
+}
+
+/* Garis home indicator ala HP di bawah kartu */
+.auth-home-indicator {
+  width: 104px;
+  height: 4px;
+  margin-top: 30px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .icon {
@@ -1796,24 +1988,98 @@ img {
 }
 
 @media (max-width: 1100px) {
+  /* Layout ala referensi: brand NUSA LAB / BOOKING di luar kartu (latar polos),
+     kartu gradasi putih-biru membulat di tengah berisi Welcome + tombol */
   .auth-shell {
     grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(min-content, 1fr);
+    min-height: 100dvh;
+    margin: 0;
+    padding: 66px 28px 50px;
+    border-radius: 0;
+    background-color: #f7fafc;
+    /* Background sama dengan versi PC (auth-side) + motif titik sangat samar */
+    background-image:
+      radial-gradient(rgba(15, 23, 42, 0.035) 1px, transparent 1px),
+      radial-gradient(circle at 12% 0%, rgba(37, 99, 235, 0.08), transparent 42%),
+      radial-gradient(circle at 88% 100%, rgba(15, 118, 110, 0.08), transparent 46%),
+      linear-gradient(165deg, #eef4ff 0%, #f7fafc 52%, #e9f5f2 100%);
+    background-size: 26px 26px, auto, auto, auto;
+    box-shadow: none;
   }
 
+  /* Brand di luar kartu — tengah atas, di atas latar polos */
   .auth-side {
-    min-height: 430px;
+    min-height: auto;
+    padding: 16px 8px 32px;
+    background: transparent;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   .auth-side-inner {
-    min-height: 346px;
+    min-height: auto;
+    align-items: center;
   }
 
-  .auth-copy {
-    padding-bottom: 0;
+  .auth-brand {
+    justify-items: center;
+    text-align: center;
   }
 
+  .auth-sunrise {
+    display: none;
+  }
+
+  .auth-brand-name {
+    font-size: 1.5rem;
+    /* Warna sama seperti versi PC: hitam pekat, tanpa gradasi */
+    color: var(--ink);
+  }
+
+  .auth-brand-sub {
+    font-size: 0.72rem;
+    letter-spacing: 0.4em;
+  }
+
+  /* Panel hanya wadah penengah — kartu yang membawa gaya visual */
   .auth-panel {
-    padding: 32px 20px 44px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: transparent;
+  }
+
+  /* Kartu gelap ala referensi sedikit lebih ringkas di layar tablet */
+  .auth-card--welcome {
+    min-height: min(620px, 82vh);
+  }
+
+  /* Kartu register tetap gelap seperti kartu login */
+  .auth-card:not(.auth-card--welcome) {
+    padding: 32px 24px;
+    border-radius: 30px;
+  }
+
+  /* Tulisan judul & deskripsi rata tengah */
+  .auth-card {
+    text-align: center;
+  }
+
+  .auth-card > p {
+    max-width: 36ch;
+    margin-left: auto;
+    margin-right: auto;
+  }
+
+  /* Notifikasi & label form tetap rata kiri agar nyaman dibaca */
+  .auth-form .notice {
+    text-align: left;
+  }
+
+  .auth-actions {
+    justify-content: center;
   }
 
   .app-shell {
@@ -1886,71 +2152,46 @@ img {
     background: var(--bg);
   }
 
+  /* Kartu Welcome menyesuaikan ukuran layar kecil */
   .auth-shell {
-    min-height: 100dvh;
-    align-content: start;
-    background: var(--surface);
+    padding: 54px 18px 42px;
   }
 
   .auth-side {
     min-height: auto;
-    padding: 18px 16px 14px;
-    color: var(--text);
-    background: var(--surface);
-  }
-
-  .auth-side::after {
-    display: none;
+    padding: 10px 4px 24px;
+    background: transparent;
   }
 
   .auth-side-inner {
     min-height: auto;
-    gap: 14px;
-    justify-content: start;
   }
 
-  .auth-side .brand-lockup {
-    color: var(--ink);
+  .auth-brand-name {
+    font-size: 1.35rem;
   }
 
-  .auth-side .brand-mark {
-    color: var(--teal);
-    background: var(--teal-soft);
-    box-shadow: var(--shadow-soft);
+  .auth-brand-sub {
+    font-size: 0.68rem;
+    letter-spacing: 0.38em;
   }
 
-  .auth-copy {
-    max-width: none;
-  }
-
-  .eyebrow {
-    margin-bottom: 8px;
-    color: var(--teal);
-  }
-
-  .auth-copy h1 {
-    font-size: 1.45rem;
-    line-height: 1.25;
-  }
-
-  .auth-copy p {
-    margin-top: 8px;
-    color: var(--muted);
-    font-size: 0.9rem;
-    line-height: 1.5;
-  }
-
-  .auth-highlights {
-    grid-template-columns: 1fr;
-  }
-
-  .auth-highlight {
-    min-height: 74px;
-  }
-
+  /* Kartu form di tengah layar (x & y) — posisi X dan Y sama-sama tengah */
   .auth-panel {
-    align-items: flex-start;
-    padding: 4px 16px 30px;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+  }
+
+  /* Kartu Welcome: proporsional di layar kecil */
+  .auth-card--welcome {
+    min-height: min(560px, 78vh);
+    padding: 48px 24px 32px;
+    border-radius: 32px;
+  }
+
+  .auth-card--welcome .auth-welcome {
+    font-size: 2rem;
   }
 
   .auth-card h2 {
@@ -2234,6 +2475,65 @@ img {
   .calendar-event {
     padding: 2px 3px;
     font-size: 0.56rem;
+  }
+}
+
+/* ===== Animasi halus agar pengguna lebih nyaman ===== */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Kartu auth & isi halaman dianimasikan lewat class .anim-fade-up
+   yang ditambahkan JS hanya saat halaman/mode berubah —
+   supaya animasi tidak diputar ulang tiap render */
+.anim-fade-up {
+  animation: fadeUp 0.45s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* Toast masuk dari bawah */
+.toast {
+  animation: toastIn 0.28s ease both;
+}
+
+/* Item daftar ikut terasa hidup saat hover */
+.item {
+  transition:
+    transform 160ms ease,
+    box-shadow 160ms ease,
+    border-color 160ms ease;
+}
+
+.item:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-soft);
+}
+
+/* Hormati preferensi pengguna yang mematikan animasi */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }
 
