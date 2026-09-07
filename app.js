@@ -24,7 +24,7 @@ let authListenerReady = false;
 
 // Penanda versi di console. Berguna untuk memastikan browser benar-benar memuat app.js terbaru
 // (bukan dari cache). Cocokkan dengan angka ?v= di index.html.
-console.info("[NusaLab] app.js v4 — jika angka ini tidak muncul, browser masih memakai app.js lama. Hard refresh (Ctrl+Shift+R) atau ganti ?v= di index.html.");
+console.info("[NusaLab] app.js v5 — jika angka ini tidak muncul, browser masih memakai app.js lama. Hard refresh (Ctrl+Shift+R) atau ganti ?v= di index.html.");
 
 const icons = {
   lab: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 2v6l-5 9a3 3 0 0 0 2.6 4.5h8.8A3 3 0 0 0 19 17L14 8V2"/><path d="M8 2h8"/><path d="M7 16h10"/></svg>',
@@ -342,6 +342,7 @@ function mapBooking(booking) {
     userId: booking.user_id,
     requester: booking.requester,
     requesterType: booking.requester_type,
+    guestPhone: booking.guest_phone || "",
     labId: booking.lab_id,
     date: booking.booking_date,
     start: normalizeTime(booking.start_time),
@@ -1066,11 +1067,35 @@ async function removeProfilePhoto() {
   }
 }
 
+// Normalisasi nomor WhatsApp input user (logika sama dengan Edge Function):
+// "0812-3456-7890" → "6281234567890", "81234567890" → "6281234567890".
+function normalizeWhatsappInput(value) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (!digits) return "";
+  if (digits.startsWith("0")) return `62${digits.slice(1)}`;
+  if (digits.startsWith("8")) return `62${digits}`;
+  return digits;
+}
+
 async function submitBooking(event) {
   event.preventDefault();
   const user = getUser();
   const isAdminUser = user?.role === "admin";
   const form = new FormData(event.currentTarget);
+  // Mode "oleh siapa": "user" = peminjam adalah akun yang login (nama otomatis),
+  // "guest" = mengajukan atas nama orang lain → wajib isi nama + nomor WhatsApp
+  // peminjam, karena notifikasi keputusan (diterima/ditolak) dikirim ke nomor itu.
+  const isGuestMode = form.get("requesterMode") === "guest";
+  const requesterName = (form.get("requester") || "").trim();
+  const guestPhone = isGuestMode ? normalizeWhatsappInput(form.get("guestPhone")) : "";
+  if (!requesterName) {
+    setToast("Nama peminjam wajib", "Isi nama peminjam sebelum menyimpan peminjaman.");
+    return;
+  }
+  if (isGuestMode && !guestPhone) {
+    setToast("Nomor WhatsApp wajib", "Mode Guest/Lainnya membutuhkan nomor WhatsApp peminjam agar notifikasi keputusan bisa dikirim.");
+    return;
+  }
   const labId = form.get("labId");
   const date = form.get("date");
   const start = form.get("start");
@@ -1086,8 +1111,11 @@ async function submitBooking(event) {
   }
   const booking = {
     user_id: user.id,
-    requester: form.get("requester").trim(),
-    requester_type: user.identity,
+    requester: requesterName,
+    // Mode guest memakai identitas khusus "Guest" + nomor WA peminjam yang
+    // bersangkutan agar notifikasi WhatsApp keputusan terkirim ke nomornya.
+    requester_type: isGuestMode ? "Guest" : user.identity,
+    guest_phone: guestPhone || null,
     lab_id: labId,
     booking_date: date,
     start_time: start,
@@ -1107,15 +1135,50 @@ async function submitBooking(event) {
 
   try {
     const client = requireSupabase();
-    const { data, error } = await client.from("bookings").insert(booking).select("*").single();
+    let { data, error } = await client.from("bookings").insert(booking).select("*").single();
+    // Fallback aman jika migrasi DB (enum 'Guest' / kolom guest_phone) belum dijalankan:
+    // peminjaman tetap tersimpan, hanya info guest yang belum tercatat di database.
+    if (error && isGuestMode) {
+      const msg = String(error.message || "").toLowerCase();
+      if (msg.includes("guest_phone")) {
+        delete booking.guest_phone;
+        ({ data, error } = await client.from("bookings").insert(booking).select("*").single());
+      } else if (msg.includes("identity_type") || msg.includes("requester_type")) {
+        booking.requester_type = user.identity;
+        ({ data, error } = await client.from("bookings").insert(booking).select("*").single());
+      }
+    }
     if (error) throw error;
 
     if (isAdminUser) {
       // Admin: peminjaman langsung disetujui & masuk kalender. Tidak perlu kirim
       // WhatsApp "permintaan baru" ke admin (pemohon == admin itu sendiri).
+      // Khusus mode guest: kirim WA "disetujui" ke nomor guest yang bersangkutan.
+      if (isGuestMode && guestPhone && data?.id) {
+        try {
+          const sessionResult = await client.auth.getSession();
+          const accessToken = sessionResult.data?.session?.access_token || supabaseSession?.access_token;
+          if (accessToken) {
+            const fnRes = await fetch(`${SUPABASE_URL}/functions/v1/notify-booking-decision`, {
+              method: "POST",
+              headers: {
+                apikey: SUPABASE_PUBLISHABLE_KEY,
+                Authorization: `Bearer ${accessToken}`,
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify({ booking_id: data.id, status: "approved" })
+            });
+            if (!fnRes.ok) console.warn("[NusaLab] WA konfirmasi guest gagal:", await fnRes.text());
+          }
+        } catch (waError) {
+          console.warn("[NusaLab] WA konfirmasi guest error:", waError);
+        }
+      }
       setToast(
         "Peminjaman dibuat",
-        "Sebagai admin, peminjaman langsung disetujui dan masuk ke kalender."
+        isGuestMode
+          ? "Peminjaman guest langsung disetujui. Notifikasi WhatsApp dikirim ke nomor peminjam yang bersangkutan."
+          : "Sebagai admin, peminjaman langsung disetujui dan masuk ke kalender."
       );
       state.activePage = "calendar";
       await loadRemoteState();
@@ -2103,10 +2166,30 @@ function renderBorrowForm() {
                 <input name="end" type="time" value="11:00" required />
               </label>
             </div>
+            <div class="form-grid two">
+              <label class="field">
+                <span>Oleh siapa</span>
+                <div class="requester-mode" role="radiogroup" aria-label="Mode peminjam">
+                  <label class="mode-option is-active">
+                    <input type="radio" name="requesterMode" value="user" checked />
+                    <span>${icon("user")}Pengguna (saya)</span>
+                  </label>
+                  <label class="mode-option">
+                    <input type="radio" name="requesterMode" value="guest" />
+                    <span>${icon("inbox")}Guest / Lainnya</span>
+                  </label>
+                </div>
+              </label>
+              <label class="field" id="guestPhoneField" hidden>
+                <span>Nomor WhatsApp peminjam</span>
+                <input name="guestPhone" type="tel" inputmode="tel" placeholder="Contoh: 081234567890" autocomplete="off" />
+              </label>
+            </div>
             <label class="field">
-              <span>Oleh siapa</span>
-              <input name="requester" value="${user.name}" required />
+              <span id="requesterNameLabel">Nama peminjam (otomatis dari akun)</span>
+              <input name="requester" value="${escapeHtml(user.name || "")}" readonly required />
             </label>
+            <p class="helper-text" id="requesterModeHint">Mode <strong>Pengguna</strong>: nama terisi otomatis dari akun kamu, tinggal isi sisanya lalu simpan. Mode <strong>Guest / Lainnya</strong>: wajib isi nama dan nomor WhatsApp yang bersangkutan — notifikasi WhatsApp diterima/tidaknya peminjaman akan dikirim ke nomor tersebut.</p>
             <label class="field">
               <span>Tujuan kegiatan</span>
               <input name="purpose" placeholder="Contoh: praktikum, workshop, penelitian" required />
@@ -2664,13 +2747,16 @@ function renderBookingItem(booking) {
   const canCancel = booking.userId === state.session.userId &&
     ["pending", "approved"].includes(booking.status);
   const canReview = isAdmin && booking.status === "pending";
-  const canPrint = !isAdmin && booking.status === "approved";
+  // Tombol Surat tampil untuk SEMUA role (termasuk admin di menu Jadwal Saya)
+  // selama peminjaman sudah disetujui. Untuk non-admin perilakunya tetap sama.
+  const canPrint = booking.status === "approved";
   return `
     <article class="item">
       <div class="item-main">
         <div class="item-title">
           ${lab.name}
           <span class="pill ${booking.status}">${statusLabel(booking.status)}</span>
+          ${booking.requesterType === "Guest" ? `<span class="pill info">Guest</span>` : ""}
           ${booking.status === "pending" && !availability.available ? `<span class="pill rejected">Ada konflik</span>` : ""}
         </div>
         <div class="item-meta">
@@ -2758,7 +2844,7 @@ function renderBookingTable(rows, admin = false) {
                 <td>
                   <div class="row-actions">
                     <button class="btn btn-ghost" data-detail="${booking.id}">${icon("search")}Detail</button>
-                    ${booking.status === "approved" && !admin ? `<button class="btn btn-soft" data-letter="${booking.id}">${icon("printer")}Surat</button>` : ""}
+                    ${booking.status === "approved" ? `<button class="btn btn-soft" data-letter="${booking.id}">${icon("printer")}Surat</button>` : ""}
                     ${booking.status === "pending" && admin ? `<button class="btn btn-primary" data-review="${booking.id}">${icon("check")}Verifikasi</button>` : ""}
                   </div>
                 </td>
@@ -2798,7 +2884,7 @@ function renderHistoryCard(booking, admin = false) {
       </div>
       <div class="row-actions history-actions">
         <button class="btn btn-ghost" data-detail="${booking.id}">${icon("search")}Detail</button>
-        ${booking.status === "approved" && !admin ? `<button class="btn btn-soft" data-letter="${booking.id}">${icon("printer")}Surat</button>` : ""}
+        ${booking.status === "approved" ? `<button class="btn btn-soft" data-letter="${booking.id}">${icon("printer")}Surat</button>` : ""}
         ${booking.status === "pending" && admin ? `<button class="btn btn-primary" data-review="${booking.id}">${icon("check")}Verifikasi</button>` : ""}
       </div>
     </article>
@@ -2900,6 +2986,7 @@ function renderDetailModal(id) {
         ${detailRow("ID", booking.id)}
         ${detailRow("Peminjam", booking.requester)}
         ${detailRow("Role peminjam", booking.requesterType)}
+        ${booking.guestPhone ? detailRow("Nomor WhatsApp peminjam", booking.guestPhone) : ""}
         ${detailRow("Lab", lab.name)}
         ${detailRow("Tanggal", formatDate(booking.date))}
         ${detailRow("Waktu", timeRange(booking))}
@@ -2932,6 +3019,7 @@ function renderReviewModal(id) {
         </div>
         <div class="detail-list">
           ${detailRow("Peminjam", booking.requester)}
+          ${booking.requesterType === "Guest" ? detailRow("Nomor WhatsApp peminjam", booking.guestPhone) : ""}
           ${detailRow("Lab", lab.name)}
           ${detailRow("Jadwal", `${formatDate(booking.date)} ${timeRange(booking)}`)}
           ${detailRow("Tujuan", booking.purpose)}
@@ -3163,6 +3251,44 @@ function bindApp() {
     const form = document.querySelector("#borrowForm");
     const data = new FormData(form);
     document.querySelector("#availabilityResult").innerHTML = renderAvailabilityPreview(data.get("labId"), data.get("date"), data.get("start"), data.get("end"));
+  });
+  // Toggle mode "Oleh siapa" (Pengguna vs Guest/Lainnya). Diubah langsung di DOM
+  // (bukan re-render) supaya isian form lain (tanggal, jam, tujuan) tidak hilang.
+  document.querySelectorAll('#borrowForm input[name="requesterMode"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      const form = document.querySelector("#borrowForm");
+      if (!form) return;
+      const isGuest = form.querySelector('input[name="requesterMode"]:checked')?.value === "guest";
+      const requesterInput = form.querySelector('[name="requester"]');
+      const nameLabel = document.querySelector("#requesterNameLabel");
+      const phoneField = document.querySelector("#guestPhoneField");
+      const phoneInput = form.querySelector('[name="guestPhone"]');
+      form.querySelectorAll(".mode-option").forEach((option) => {
+        option.classList.toggle("is-active", option.querySelector("input")?.checked === true);
+      });
+      if (!requesterInput) return;
+      if (isGuest) {
+        if (nameLabel) nameLabel.textContent = "Nama peminjam (guest / lainnya)";
+        requesterInput.readOnly = false;
+        requesterInput.value = "";
+        requesterInput.placeholder = "Nama lengkap peminjam yang bersangkutan";
+        if (phoneField) phoneField.hidden = false;
+        if (phoneInput) {
+          phoneInput.required = true;
+          phoneInput.focus();
+        }
+      } else {
+        if (nameLabel) nameLabel.textContent = "Nama peminjam (otomatis dari akun)";
+        requesterInput.readOnly = true;
+        requesterInput.value = getUser()?.name || "";
+        requesterInput.placeholder = "";
+        if (phoneField) phoneField.hidden = true;
+        if (phoneInput) {
+          phoneInput.required = false;
+          phoneInput.value = "";
+        }
+      }
+    });
   });
   document.querySelector("#avatarInput")?.addEventListener("change", (event) => {
     saveProfilePhoto(event.currentTarget.files?.[0]);

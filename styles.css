@@ -232,6 +232,68 @@ img {
   box-shadow: var(--shadow-soft);
 }
 
+/* Mode "Oleh siapa" pada form Ajukan Peminjaman (Pengguna vs Guest/Lainnya).
+   Tampilannya mengikuti gaya .segmented, tapi berbasis radio input agar nilainya
+   ikut terkirim lewat FormData. */
+.requester-mode {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+}
+
+.requester-mode .mode-option {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-height: 42px;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.9rem;
+  font-weight: 750;
+  cursor: pointer;
+  transition: background 160ms ease, color 160ms ease;
+}
+
+.requester-mode .mode-option input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.requester-mode .mode-option span {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+}
+
+.requester-mode .mode-option span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.requester-mode .mode-option.is-active {
+  color: var(--ink);
+  background: var(--surface);
+  box-shadow: var(--shadow-soft);
+}
+
+/* .field memakai display:grid, sehingga atribut hidden perlu dipaksa agar
+   field "Nomor WhatsApp peminjam" benar-benar tersembunyi di mode Pengguna. */
+.field[hidden] {
+  display: none !important;
+}
+
 .field-grid,
 .form-grid {
   display: grid;
